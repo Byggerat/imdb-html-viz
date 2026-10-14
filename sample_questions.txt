@@ -1,0 +1,35 @@
+how many movies are present per year? as a bar chart. remove the dots
+average rating per year for movies.
+average rating per year for movies for the last 30 years
+show me the top ten highest rated movies per year.
+show me the top ten highest rated movies.
+what are the most popular genres?
+show me the top ten highest rated movies weighted by their ratings count.
+
+  Bar
+  - "What are the top 10 genres by number of titles?"
+  - "How many TV series started each decade?"
+  - "Which genres have the highest average rating?"
+
+  Line
+  - "Show the trend of average movie rating over the years"
+  - "How has the average runtime of movies changed since 1950?"
+  - "Show the number of TV series premieres per year since 2000"
+
+  Pie
+  - "What is the breakdown of title types (movie, tvSeries, short, etc)?"
+  - "What share of movies were made in each decade since 1980?"
+
+  Scatter
+  - "Is there a correlation between runtime and rating for movies?"
+  - "Show runtime vs number of votes for the top 500 most voted movies"
+
+  Table
+  - "Show the top 20 movies by number of votes with their rating and genre"
+  - "List the longest running TV series with their start and end year"
+  - "What are the top 10 highest rated movies with at least 100,000 votes?"
+
+● - "Is there a correlation between runtime and rating for movies?"
+  - "Show runtime vs number of votes for movies with at least 10,000 votes"
+  - "Plot average rating vs number of votes for the top 500 most voted movies"
+  - "Show season count vs average rating for TV series"

@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IMDB Viz</title>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0e1020;
+      color: #e2e8f0;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 48px 24px;
+      gap: 32px;
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 600;
+      color: #72e5ef;
+      letter-spacing: 0.04em;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      max-width: 720px;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      background: #181b2e;
+      color: #e2e8f0;
+      border: 1px solid #2e3352;
+      border-radius: 12px;
+      padding: 14px 20px;
+      font-size: 16px;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    input[type="text"]::placeholder { color: #4a5278; }
+    input[type="text"]:focus { border-color: #72e5ef; box-shadow: 0 0 0 3px rgba(114,229,239,0.12); }
+
+    button {
+      background: #1e2245;
+      color: #e2e8f0;
+      border: 1px solid #2e3352;
+      border-radius: 12px;
+      padding: 14px 24px;
+      font-size: 15px;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      white-space: nowrap;
+    }
+
+    button:hover { background: #262a54; border-color: #72e5ef; color: #72e5ef; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #status {
+      font-size: 14px;
+      color: #4a5278;
+      min-height: 20px;
+    }
+
+    #chart-area {
+      width: 100%;
+      max-width: 900px;
+    }
+
+    #chart-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #c8d6f0;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    svg { overflow: visible; }
+
+    .axis path, .axis line { stroke: #2e3352; }
+    .axis text { fill: #6b7a9f; font-size: 12px; }
+
+    .bar { opacity: 0.9; }
+    .bar:hover { opacity: 1; }
+
+    .line-path { fill: none; stroke-width: 2; }
+    .dot:hover { opacity: 1; }
+
+    .arc path { opacity: 0.85; }
+    .arc path:hover { opacity: 1; }
+
+    .pie-legend { font-size: 12px; fill: #8892b4; }
+
+    .scatter-dot { opacity: 0.6; }
+    .scatter-dot:hover { opacity: 1; }
+
+    /* table */
+    #data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    #data-table th {
+      text-align: left;
+      padding: 8px 12px;
+      border-bottom: 1px solid #2e3352;
+      color: #6b7a9f;
+      font-weight: 500;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+    }
+
+    #data-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid #181b2e;
+      color: #c8d6f0;
+    }
+
+    #data-table tr:hover td { background: #181b2e; }
+
+    #error-box {
+      color: #f08080;
+      font-size: 14px;
+      background: #1f1020;
+      border: 1px solid #5a2a3a;
+      border-radius: 8px;
+      padding: 12px 18px;
+      max-width: 720px;
+      width: 100%;
+    }
+
+    .sql-box {
+      font-size: 12px;
+      color: #4a5278;
+      font-family: monospace;
+      background: #131626;
+      border: 1px solid #1e2245;
+      border-radius: 8px;
+      padding: 10px 14px;
+      max-width: 900px;
+      width: 100%;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .tooltip {
+      position: absolute;
+      background: #1e2245;
+      border: 1px solid #2e3352;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 13px;
+      color: #c8d6f0;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+  </style>
+</head>
+<body>
+
+<h1>IMDB Visualizer</h1>
+
+<div class="input-row">
+  <input type="text" id="question" placeholder="Ask a question about the IMDB data…" autocomplete="off">
+  <button id="submit-btn" onclick="submitQuestion()">Ask</button>
+</div>
+
+<div id="status"></div>
+<div id="error-box" style="display:none"></div>
+<div id="chart-area" style="display:none">
+  <div id="chart-title"></div>
+  <div id="chart-container"></div>
+</div>
+<div id="sql-output" class="sql-box" style="display:none"></div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const API = "http://localhost:8000/query";
+const COLORS = ["#72e5ef","#3a6566","#95d78d","#158a2c","#1cf1a3","#333a9e","#b55edb","#1288da","#bfd6fa","#6314af"];
+const color = d3.scaleOrdinal(COLORS);
+
+document.getElementById("question").addEventListener("keydown", e => {
+  if (e.key === "Enter") submitQuestion();
+});
+
+async function submitQuestion() {
+  const question = document.getElementById("question").value.trim();
+  if (!question) return;
+
+  setStatus("Thinking…");
+  setError(null);
+  hideChart();
+  document.getElementById("submit-btn").disabled = true;
+
+  try {
+    const res = await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    const json = await res.json();
+
+    if (json.error) {
+      setError(json.error);
+      if (json.sql) showSql(json.sql);
+      setStatus("");
+      return;
+    }
+
+    showSql(json.sql);
+    renderChart(json);
+    setStatus("");
+  } catch (err) {
+    setError("Network error: " + err.message);
+    setStatus("");
+  } finally {
+    document.getElementById("submit-btn").disabled = false;
+  }
+}
+
+function setStatus(msg) {
+  document.getElementById("status").textContent = msg;
+}
+
+function setError(msg) {
+  const el = document.getElementById("error-box");
+  if (msg) { el.textContent = msg; el.style.display = "block"; }
+  else el.style.display = "none";
+}
+
+function hideChart() {
+  document.getElementById("chart-area").style.display = "none";
+  document.getElementById("sql-output").style.display = "none";
+  document.getElementById("chart-container").innerHTML = "";
+}
+
+function showSql(sql) {
+  const el = document.getElementById("sql-output");
+  el.textContent = sql;
+  el.style.display = "block";
+}
+
+function fieldLabel(field, hint) {
+  if (hint) return hint;
+  return field.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function renderChart({ data, chart_type, x_field, y_field, x_label, y_label, title, options = {} }) {
+  x_label = fieldLabel(x_field, x_label);
+  y_label = fieldLabel(y_field, y_label);
+  document.getElementById("chart-title").textContent = title;
+  document.getElementById("chart-area").style.display = "block";
+  const container = document.getElementById("chart-container");
+  container.innerHTML = "";
+
+  if (!data || data.length === 0) {
+    container.textContent = "No data returned.";
+    return;
+  }
+
+  switch (chart_type) {
+    case "bar":    renderBar(container, data, x_field, y_field, options, x_label, y_label); break;
+    case "line":   renderLine(container, data, x_field, y_field, options, x_label, y_label); break;
+    case "pie":    renderPie(container, data, x_field, y_field, x_label, y_label); break;
+    case "scatter":renderScatter(container, data, x_field, y_field, x_label, y_label); break;
+    default:       renderTable(container, data); break;
+  }
+}
+
+const MARGIN = { top: 20, right: 30, bottom: 60, left: 70 };
+const W = Math.min(860, window.innerWidth - 48);
+const H = 420;
+const IW = W - MARGIN.left - MARGIN.right;
+const IH = H - MARGIN.top - MARGIN.bottom;
+
+function tooltip() { return document.getElementById("tooltip"); }
+
+function showTip(html, event) {
+  const t = tooltip();
+  t.innerHTML = html;
+  t.style.opacity = 1;
+  moveTip(event);
+}
+
+function moveTip(event) {
+  const t = tooltip();
+  t.style.left = (event.pageX + 14) + "px";
+  t.style.top  = (event.pageY - 10) + "px";
+}
+
+function hideTip() { tooltip().style.opacity = 0; }
+
+// --- Bar chart ---
+function renderBar(container, data, xf, yf, options = {}, xl, yl) {
+  const labels = data.map(d => String(d[xf]));
+  const avgLabelLen = labels.reduce((s, l) => s + l.length, 0) / labels.length;
+  if (labels.length > 8 || avgLabelLen > 6) { renderBarH(container, data, xf, yf, xl, yl); return; }
+
+  const svg = makeSvg(container);
+  const g = svg.append("g").attr("transform", `translate(${MARGIN.left},${MARGIN.top})`);
+
+  const values = data.map(d => +d[yf]);
+
+  const x = d3.scaleBand().domain(labels).range([0, IW]).padding(0.25);
+  const y = d3.scaleLinear().domain([0, d3.max(values) * 1.05]).range([IH, 0]);
+
+  addAxes(g, x, y, xl, yl);
+  fitSvgToContent(svg, g);
+
+  g.selectAll(".bar")
+    .data(data)
+    .join("rect")
+    .attr("class", "bar")
+    .attr("fill", COLORS[0])
+    .attr("x", d => x(String(d[xf])))
+    .attr("y", d => y(+d[yf]))
+    .attr("width", x.bandwidth())
+    .attr("height", d => IH - y(+d[yf]))
+    .on("mouseover", (e, d) => showTip(`${d[xf]}: <b>${fmt(d[yf])}</b>`, e))
+    .on("mousemove", moveTip)
+    .on("mouseout", hideTip);
+}
+
+// --- Horizontal bar chart ---
+function renderBarH(container, data, xf, yf, xl, yl) {
+  const marginL = 150;
+  const iw = W - marginL - MARGIN.right;
+  const ih = Math.max(IH, data.length * 32);
+  const svgH = ih + MARGIN.top + 50;
+
+  const svg = d3.select(container).append("svg").attr("width", W).attr("height", svgH);
+  const g = svg.append("g").attr("transform", `translate(${marginL},${MARGIN.top})`);
+
+  const labels = data.map(d => String(d[xf]));
+  const values = data.map(d => +d[yf]);
+
+  const y = d3.scaleBand().domain(labels).range([0, ih]).padding(0.2);
+  const x = d3.scaleLinear().domain([0, d3.max(values) * 1.05]).range([0, iw]);
+
+  g.append("g").attr("class", "axis").attr("transform", `translate(0,${ih})`)
+    .call(d3.axisBottom(x).ticks(6).tickFormat(fmtAxis).tickSizeOuter(0));
+
+  g.append("g").attr("class", "axis")
+    .call(d3.axisLeft(y).tickSizeOuter(0));
+
+  g.append("text")
+    .attr("x", iw / 2).attr("y", ih + 40)
+    .attr("text-anchor", "middle").attr("fill", "#6b7a9f").attr("font-size", 12)
+    .text(yl);
+
+  g.selectAll(".bar")
+    .data(data)
+    .join("rect")
+    .attr("class", "bar")
+    .attr("fill", COLORS[0])
+    .attr("y", d => y(String(d[xf])))
+    .attr("x", 0)
+    .attr("height", y.bandwidth())
+    .attr("width", d => x(+d[yf]))
+    .on("mouseover", (e, d) => showTip(`${d[xf]}: <b>${fmt(d[yf])}</b>`, e))
+    .on("mousemove", moveTip)
+    .on("mouseout", hideTip);
+}
+
+// --- Line chart ---
+function renderLine(container, data, xf, yf, options = {}, xl, yl) {
+  const svg = makeSvg(container);
+  const g = svg.append("g").attr("transform", `translate(${MARGIN.left},${MARGIN.top})`);
+
+  const sorted = [...data].sort((a, b) => +a[xf] - +b[xf]);
+  const xVals = sorted.map(d => +d[xf]);
+  const yVals = sorted.map(d => +d[yf]);
+
+  const x = d3.scaleLinear().domain(d3.extent(xVals)).range([0, IW]);
+  const y = d3.scaleLinear().domain([0, d3.max(yVals) * 1.05]).range([IH, 0]);
+
+  addAxes(g, x, y, xl, yl);
+  fitSvgToContent(svg, g);
+
+  const line = d3.line().x(d => x(+d[xf])).y(d => y(+d[yf]));
+  g.append("path").datum(sorted).attr("class", "line-path").attr("stroke", COLORS[0]).attr("d", line);
+
+  const showDots = options.show_dots !== false;
+  if (showDots) {
+    g.selectAll(".dot")
+      .data(sorted)
+      .join("circle")
+      .attr("class", "dot")
+      .attr("fill", COLORS[0])
+      .attr("cx", d => x(+d[xf]))
+      .attr("cy", d => y(+d[yf]))
+      .attr("r", 4)
+      .on("mouseover", (e, d) => showTip(`${d[xf]}: <b>${fmt(d[yf])}</b>`, e))
+      .on("mousemove", moveTip)
+      .on("mouseout", hideTip);
+  }
+}
+
+// --- Pie chart ---
+function renderPie(container, data, xf, yf) {
+  const size = Math.min(W, H + 40);
+  const svg = d3.select(container).append("svg")
+    .attr("width", W).attr("height", size + 80);
+
+  const g = svg.append("g").attr("transform", `translate(${W / 2},${(size + 40) / 2})`);
+  const r = (size - 80) / 2;
+
+  color.domain(data.map(d => d[xf]));
+  const pie = d3.pie().value(d => +d[yf]);
+  const arc = d3.arc().innerRadius(0).outerRadius(r);
+  const labelArc = d3.arc().innerRadius(r * 0.65).outerRadius(r * 0.65);
+
+  const arcs = g.selectAll(".arc")
+    .data(pie(data))
+    .join("g").attr("class", "arc");
+
+  arcs.append("path")
+    .attr("d", arc)
+    .attr("fill", (_, i) => color(i))
+    .on("mouseover", (e, d) => showTip(`${d.data[xf]}: <b>${fmt(d.data[yf])}</b>`, e))
+    .on("mousemove", moveTip)
+    .on("mouseout", hideTip);
+
+  arcs.append("text")
+    .attr("transform", d => `translate(${labelArc.centroid(d)})`)
+    .attr("text-anchor", "middle")
+    .attr("class", "pie-legend")
+    .text(d => {
+      const pct = ((d.endAngle - d.startAngle) / (2 * Math.PI) * 100).toFixed(0);
+      return pct > 4 ? `${d.data[xf]}` : "";
+    });
+}
+
+// --- Scatter plot ---
+function renderScatter(container, data, xf, yf, xl, yl) {
+  const svg = makeSvg(container);
+  const g = svg.append("g").attr("transform", `translate(${MARGIN.left},${MARGIN.top})`);
+
+  const x = d3.scaleLinear().domain(d3.extent(data, d => +d[xf])).nice().range([0, IW]);
+  const y = d3.scaleLinear().domain(d3.extent(data, d => +d[yf])).nice().range([IH, 0]);
+
+  addAxes(g, x, y, xl, yl);
+  fitSvgToContent(svg, g);
+
+  g.selectAll(".scatter-dot")
+    .data(data)
+    .join("circle")
+    .attr("class", "scatter-dot")
+    .attr("fill", COLORS[0])
+    .attr("cx", d => x(+d[xf]))
+    .attr("cy", d => y(+d[yf]))
+    .attr("r", 5)
+    .on("mouseover", (e, d) => showTip(`${xl}: ${fmt(d[xf])}, ${yl}: ${fmt(d[yf])}`, e))
+    .on("mousemove", moveTip)
+    .on("mouseout", hideTip);
+}
+
+// --- Table ---
+function renderTable(container, data) {
+  const cols = Object.keys(data[0]);
+  const table = document.createElement("table");
+  table.id = "data-table";
+
+  const thead = table.createTHead();
+  const hrow = thead.insertRow();
+  cols.forEach(c => { const th = document.createElement("th"); th.textContent = c; hrow.appendChild(th); });
+
+  const tbody = table.createTBody();
+  data.forEach(row => {
+    const tr = tbody.insertRow();
+    cols.forEach(c => { const td = tr.insertCell(); td.textContent = row[c] ?? ""; });
+  });
+
+  container.appendChild(table);
+}
+
+// --- Helpers ---
+function makeSvg(container) {
+  return d3.select(container).append("svg").attr("width", W).attr("height", H);
+}
+
+function fitSvgToContent(svg, g) {
+  try {
+    const bbox = g.node().getBBox();
+    const needed = MARGIN.top + bbox.y + bbox.height + 16;
+    if (needed > +svg.attr("height")) svg.attr("height", needed);
+  } catch(e) {}
+}
+
+function addAxes(g, x, y, xLabel, yLabel) {
+  let xAxis;
+  if (typeof x.bandwidth === "function") {
+    const domain = x.domain();
+    const maxTicks = Math.max(1, Math.floor(IW / 60));
+    const step = Math.ceil(domain.length / maxTicks);
+    const tickVals = domain.filter((_, i) => i % step === 0);
+    xAxis = d3.axisBottom(x).tickValues(tickVals).tickSizeOuter(0);
+  } else {
+    xAxis = d3.axisBottom(x).ticks(8).tickFormat(d3.format("d")).tickSizeOuter(0);
+  }
+
+  const xAxisG = g.append("g")
+    .attr("class", "axis")
+    .attr("transform", `translate(0,${IH})`)
+    .call(xAxis);
+
+  xAxisG.selectAll("text")
+    .attr("transform", "rotate(-40)")
+    .style("text-anchor", "end");
+
+  g.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(6).tickFormat(fmtAxis));
+
+  const xAxisBbox = xAxisG.node().getBBox();
+  const xLabelY = IH + xAxisBbox.height + 14;
+
+  g.append("text")
+    .attr("x", IW / 2).attr("y", xLabelY)
+    .attr("text-anchor", "middle")
+    .attr("fill", "#6b7a9f").attr("font-size", 12)
+    .text(xLabel);
+
+  g.append("text")
+    .attr("transform", "rotate(-90)")
+    .attr("x", -IH / 2).attr("y", -54)
+    .attr("text-anchor", "middle")
+    .attr("fill", "#6b7a9f").attr("font-size", 12)
+    .text(yLabel);
+}
+
+function fmt(v) {
+  const n = +v;
+  if (!isNaN(n) && !Number.isInteger(n)) return n.toFixed(2);
+  if (!isNaN(n) && n >= 1000) return d3.format(",")(n);
+  return v;
+}
+
+function fmtAxis(v) {
+  if (Math.abs(v) >= 1e6) return d3.format(".2s")(v);
+  if (Math.abs(v) >= 1e3) return d3.format(",")(v);
+  return v;
+}
+</script>
+</body>
+</html>
